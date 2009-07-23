@@ -1,0 +1,40 @@
+IP TOS module for nginx.
+
+This module was designed to allow setting of ip_tos ip header byte on
+outgoing packets sent by nginx.  It may be used to implement smart QoS
+and traffic shaping at firewall/router level.
+
+Note that it doesn't try to impose any limits on TOS field and should be used
+with care.  At least you probably shouldn't touch two lower bits related
+to ECN.
+
+Some TOS related info may be found here:
+
+http://en.wikipedia.org/wiki/Type_of_Service
+http://en.wikipedia.org/wiki/Differentiated_services
+http://en.wikipedia.org/wiki/Quality_of_Service
+
+Configuration directives:
+
+    ip_tos  (off|0xHH)
+
+        Context: http, server, location
+        Default: off
+
+        Switches ip tos setting and specifies value to use.
+
+Usage:
+
+    ip_tos  0x00;
+
+    location /video/ {
+        ip_tos  0x10;
+    }
+
+Note that setting TOS happens at request start and only if configured, so
+keepalive connections may inherit TOS from previous request.  It is good
+idea to explicitly set default TOS value at server level (or even at http
+level if the same listening socket used by more than one server).
+
+To compile nginx with ip tos module use "--add-module <path>" option to nginx
+configure.
