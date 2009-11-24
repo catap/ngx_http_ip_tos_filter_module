@@ -149,7 +149,7 @@ ngx_http_ip_tos(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         return NGX_CONF_OK;
     }
 
-    if (value[1].len != 4 || value[1].data[0] != '0' || 
+    if (value[1].len != 4 || value[1].data[0] != '0' ||
         (value[1].data[1] != 'x' && value[1].data[1] != 'X'))
     {
         return "invalid argument 1";
