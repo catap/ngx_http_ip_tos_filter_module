@@ -88,14 +88,21 @@ ngx_http_ip_tos_header_filter(ngx_http_request_t *r)
 
     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
                    "ip tos: 0x%02Xi", tos);
-
-    if (setsockopt(r->connection->fd, IPPROTO_IP, IP_TOS,
-                   (const void *) &tos, sizeof(tos)) == -1)
-    {
-        ngx_log_error(NGX_LOG_ALERT, r->connection->log, ngx_socket_errno,
-                      "setsockopt(IP_TOS) failed");
+    if(r->connection->sockaddr->sa_family == AF_INET){
+      if (setsockopt(r->connection->fd, IPPROTO_IP, IP_TOS,
+		     (const void *) &tos, sizeof(tos)) == -1)
+	{
+	  ngx_log_error(NGX_LOG_ALERT, r->connection->log, ngx_socket_errno,
+			"setsockopt(IP_TOS) failed");
+	}
+    }else{
+      if(setsockopt(r->connection->fd, IPPROTO_IPV6, IPV6_TCLASS, &tos, sizeof(tos)) == -1)
+	{
+	  ngx_log_error(NGX_LOG_ALERT, r->connection->log, ngx_socket_errno,
+			"setsockopt(IPV6_TCLASS) failed");
+	  
+	}
     }
-
     return ngx_http_next_header_filter(r);
 }
 
