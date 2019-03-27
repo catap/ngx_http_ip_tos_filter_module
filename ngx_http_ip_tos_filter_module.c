@@ -10,13 +10,15 @@
 
 typedef struct {
     ngx_flag_t         enable;
-    ngx_uint_t         tos;
+    ngx_int_t          tos;
+    ngx_http_complex_value_t  tos_complex;
 } ngx_http_ip_tos_conf_t;
 
 
 static void *ngx_http_ip_tos_create_conf(ngx_conf_t *cf);
 static char *ngx_http_ip_tos_merge_conf(ngx_conf_t *cf, void *parent,
     void *child);
+static char *ngx_http_ip_tos_parse_tos(ngx_str_t *value, ngx_flag_t *enable, ngx_int_t *tos);
 static char *ngx_http_ip_tos(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static ngx_int_t ngx_http_ip_tos_init(ngx_conf_t *cf);
 
@@ -71,8 +73,11 @@ static ngx_http_output_header_filter_pt  ngx_http_next_header_filter;
 static ngx_int_t
 ngx_http_ip_tos_header_filter(ngx_http_request_t *r)
 {
-    int                      tos;
+    ngx_flag_t               enable;
+    ngx_int_t                tos;
     ngx_http_ip_tos_conf_t  *conf;
+    ngx_str_t                res;
+    char *                   tos_msg;
 
     if (r != r->main) {
         return ngx_http_next_header_filter(r);
@@ -85,6 +90,24 @@ ngx_http_ip_tos_header_filter(ngx_http_request_t *r)
     }
 
     tos = conf->tos;
+
+    if (tos == -2) {
+        /* variable argument */
+        if (ngx_http_complex_value(r, &conf->tos_complex, &res) != NGX_OK) {
+            return NGX_ERROR;
+        }
+
+        tos_msg = ngx_http_ip_tos_parse_tos(&res, &enable, &tos);
+        if (tos_msg != NGX_CONF_OK) {
+            ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0,
+                "ip_tos: %s", tos_msg);
+            return ngx_http_next_header_filter(r);
+        }
+
+        if (!enable) {
+            return ngx_http_next_header_filter(r);
+        }
+    }
 
     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
                    "ip tos: 0x%02Xi", tos);
@@ -118,7 +141,7 @@ ngx_http_ip_tos_create_conf(ngx_conf_t *cf)
     }
 
     conf->enable = NGX_CONF_UNSET;
-    conf->tos = NGX_CONF_UNSET_UINT;
+    conf->tos = NGX_CONF_UNSET;
 
     return conf;
 }
@@ -131,7 +154,32 @@ ngx_http_ip_tos_merge_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_http_ip_tos_conf_t *conf = child;
 
     ngx_conf_merge_value(conf->enable, prev->enable, 0);
-    ngx_conf_merge_uint_value(conf->tos, prev->tos, 0);
+    ngx_conf_merge_value(conf->tos, prev->tos, 0);
+
+    return NGX_CONF_OK;
+}
+
+
+static char *
+ngx_http_ip_tos_parse_tos(ngx_str_t *value, ngx_flag_t *enable, ngx_int_t *tos)
+{
+    if (ngx_strcasecmp(value->data, (u_char *) "off") == 0) {
+        *enable = 0;
+        return NGX_CONF_OK;
+    }
+
+    if (value->len != 4 || value->data[0] != '0' ||
+        (value->data[1] != 'x' && value->data[1] != 'X'))
+    {
+        return "invalid argument 1";
+    }
+
+    *tos = ngx_hextoi(value->data + 2, value->len - 2);
+    if (*tos == NGX_ERROR || *tos < 0 || *tos > 255) {
+        return "invalid argument 2";
+    }
+
+    *enable = 1;
 
     return NGX_CONF_OK;
 }
@@ -142,8 +190,9 @@ ngx_http_ip_tos(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
     ngx_http_ip_tos_conf_t  *itcf = conf;
 
-    ngx_int_t   n;
     ngx_str_t  *value;
+    char       *tos_msg;
+    ngx_http_compile_complex_value_t ccv;
 
     if (itcf->enable != NGX_CONF_UNSET) {
         return "is duplicate";
@@ -151,24 +200,29 @@ ngx_http_ip_tos(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     value = cf->args->elts;
 
-    if (ngx_strcasecmp(value[1].data, (u_char *) "off") == 0) {
-        itcf->enable = 0;
-        return NGX_CONF_OK;
+    ngx_memzero(&ccv, sizeof(ngx_http_compile_complex_value_t));
+
+    ccv.cf = cf;
+    ccv.value = &value[1];
+    ccv.complex_value = &itcf->tos_complex;
+    ccv.zero = 0;
+    ccv.conf_prefix = 0;
+
+    if(ngx_http_compile_complex_value(&ccv) != NGX_OK) {
+        return NGX_CONF_ERROR;
     }
 
-    if (value[1].len != 4 || value[1].data[0] != '0' ||
-        (value[1].data[1] != 'x' && value[1].data[1] != 'X'))
-    {
-        return "invalid argument 1";
+    if (itcf->tos_complex.lengths == NULL) {
+        /* static argument */
+        tos_msg = ngx_http_ip_tos_parse_tos(&value[1], &itcf->enable, &itcf->tos);
+        if (tos_msg != NGX_CONF_OK) {
+            return tos_msg;
+        }
+    } else {
+        /* variable argument */
+        itcf->enable = 1;
+        itcf->tos = -2;
     }
-
-    n = ngx_hextoi(value[1].data + 2, value[1].len - 2);
-    if (n == NGX_ERROR || n < 0 || n > 255) {
-        return "invalid argument 2";
-    }
-
-    itcf->enable = 1;
-    itcf->tos = n;
 
     return NGX_CONF_OK;
 }
