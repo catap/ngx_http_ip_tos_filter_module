@@ -165,7 +165,9 @@ ngx_http_ip_tos_merge_conf(ngx_conf_t *cf, void *parent, void *child)
 static char *
 ngx_http_ip_tos_parse_tos(ngx_str_t *value, ngx_flag_t *enable, ngx_int_t *tos)
 {
-    if (ngx_strcasecmp(value->data, (u_char *) "off") == 0) {
+    if (value->len == 3
+        && ngx_strncasecmp(value->data, (u_char *) "off", 3) == 0)
+    {
         *enable = 0;
         return NGX_CONF_OK;
     }
