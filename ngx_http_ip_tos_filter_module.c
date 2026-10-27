@@ -111,6 +111,20 @@ ngx_http_ip_tos_header_filter(ngx_http_request_t *r)
 
     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
                    "ip tos: 0x%02Xi", tos);
+
+#if (NGX_QUIC)
+    if (r->connection->quic) {
+        /*
+         * A QUIC connection sends from the worker's listening socket,
+         * which every connection and server block on that worker shares;
+         * setsockopt() on it would mark their datagrams too.
+         */
+        ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                       "ip tos: skipped on a QUIC connection");
+        return ngx_http_next_header_filter(r);
+    }
+#endif
+
     if(r->connection->sockaddr->sa_family == AF_INET){
       if (setsockopt(r->connection->fd, IPPROTO_IP, IP_TOS,
 		     (const void *) &tos, sizeof(tos)) == -1)
@@ -165,7 +179,9 @@ ngx_http_ip_tos_merge_conf(ngx_conf_t *cf, void *parent, void *child)
 static char *
 ngx_http_ip_tos_parse_tos(ngx_str_t *value, ngx_flag_t *enable, ngx_int_t *tos)
 {
-    if (ngx_strcasecmp(value->data, (u_char *) "off") == 0) {
+    if (value->len == 3
+        && ngx_strncasecmp(value->data, (u_char *) "off", 3) == 0)
+    {
         *enable = 0;
         return NGX_CONF_OK;
     }
